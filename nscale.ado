@@ -1,281 +1,311 @@
-*** version 2.1.2 5August2019
+*** version 3.0 9January2020
 *** contact information: plus1@sogang.ac.kr
 
 program nscale
 	version 10
-	syntax varlist [, GENerate(namelist) PREfix(name) Missing(numlist max=1) UP DOWN Reverse Tab noPOSTfix]
+	syntax varlist(numeric) [, REPLACE Generate(namelist) PREfix(name) POSTfix(name) Extract(numlist max=1) NUMbering(numlist max=1) SEParator Interactive Quietly Missing(numlist max=1) Up Down Reverse Tabulate]
 
-quietly {
+// qui {
 
-	if "`postfix'" == "nopostfix" {
+	*** check if options are correctly specified
+		if ( "`generate'"!="" | "`prefix'"!="" | "`postfix'"!="" ) & "`replace'"!="" {
+			di as error "option generate(), prefix() or postfix() may not be combined with replace"
+			exit 198			
+		}
+		if ( "`extract'"!="" | "`numbering'"!="" ) & "`generate'"=="" {
+			di as error "option extract() or numbering() requires generate() to be set"
+			exit 198
+		}
+		if "`missing'"!="" & "`interactive'"!="" {
+			di as error "option interactive may not be combined with missing()"
+			exit 198
+		}
+		if "`up'"!="" & "`down'"!="" {
+			di as error "option up may not be combined with down"
+			exit 198
+		}
+		if ( "`up'"!="" | "`down'"!="" ) & "`missing'"=="" {
+			di as error "option up or down requires missing() to be set"
+			exit 198
+		}
 
-		if "`generate'" != "" | "`prefix'" != "" {
+	*** print warnings {
+		if "`extract'"!="" & "`numbering'"!="" {
+			di as result "option extract() combined with numbering() might not give the desired result"
+		}
+		if "`prefix'"=="" & "`postfix'"=="" & "`separator'"!="" {
+			di as result "option separator only applies if prefix() or postfix() is set"
+		}
+		if "`interactive'"=="" & "`quietly'"!="" {
+			di as result "option quietly only applies if nscale is running in interactive mode"
+		}
 
-			noisily Error 198 "option generate or prefix may not be combined with nopostfix"
+	*** get number of variables
+		local counted : word count `varlist'
 
+	*** check if nubmer of variables and number of names match
+		if ( "`extract'"!="" | "`numbering'"!="" ) & `counted'>1 & `: word count `generate''==1 {
+			local generate="`generate' "*(`counted'-1)+"`generate'"
+		}
+		if "`generate'"!="" {
+			if `counted'<`: word count `generate'' {
+				di as error "option generate():	too many names specified"
+				exit 103
+			}
+			else if `counted'>`: word count `generate'' {
+				di as error "option generate():	too few names specified"
+				exit 103
+			}
+		}
+
+	*** options applied before naming
+		if "`separator'"!="" {
+			local sep "_"
 		}
 		else {
-		* gen(namelist) and pre(name): off
-			if "`missing'" != "" {
-
-				foreach var in `varlist' {
-					if "`up'" != "" & "`down'" != "" {
-						noisily Error 198 "option up may not be combined with down"
-					}
-					else if "`up'" != "" & "`down'" == "" {
-						summarize `var' if `var' < `missing'
-						replace `var' = (`var' - r(min))/(r(max) - r(min)) if `var' < `missing'
-						replace `var' = . if `var' >= `missing'
-					}
-					else if "`up'" == "" & "`down'" != "" {
-						summarize `var' if `var' > `missing'
-						replace `var' = (`var' - r(min))/(r(max) - r(min)) if `var' > `missing'
-						replace `var' = . if `var' <= `missing'
-					}
-					else {
-						summarize `var' if `var' != `missing'
-						replace `var' = (`var' - r(min))/(r(max) - r(min)) if `var' != `missing'		
-						replace `var' = . if `var' == `missing'
-					}
-					if "`reverse'" != "" {
-						replace `var' = 1 - `var'
-					}
-				}
-
-			}
-			else {
-			* m(#): off
-				if "`up'" != "" | "`down'" != "" {
-					noisily Error 198 "option up or down requires option missing to be set"
-				}
-				else {
-					foreach var in `varlist' {
-						summarize `var'
-						replace `var' = (`var' - r(min))/(r(max) - r(min))
-						if "`reverse'" != "" {
-							replace `var' = 1 - `var'
-						}
-					}
-				}
-
-			}
-
-			foreach var in `varlist' {
-					label values `var' .
-			}
-
-			if "`tab'" != "" {
-				noisily tab1 `varlist'
-			}
-
+			local sep ""
 		}
 
-	}
-	else {
-
-		if "`generate'" != "" & "`prefix'" != "" {
-
-			noisily Error 198 "option generate may not be combined with prefix"
-
-		}
-		else if "`generate'" != "" & "`prefix'" == "" {
-
-			local n_vars : word count `varlist'
-			if `n_vars' < `: word count `generate'' {
-				noisily Error 103 "option generate():	too many names specified"
-			}
-			else if `n_vars' > `: word count `generate'' {
-				noisily Error 103 "option generate():	too few names specified"
-			}
-			forval i = 1/`n_vars' {
-				local ovar : word `i' of `varlist'
-				local nvar : word `i' of `generate'
-				clonevar `nvar' = `ovar'
-				label values `nvar' .
-			}
-
-			if "`missing'" != "" {
-
-				foreach var in `generate' {
-					if "`up'" != "" & "`down'" != "" {
-						noisily Error 198 "option up may not be combined with down"
-					}
-					else if "`up'" != "" & "`down'" == "" {
-						summarize `var' if `var' < `missing'
-						replace `var' = (`var' - r(min))/(r(max) - r(min)) if `var' < `missing'
-						replace `var' = . if `var' >= `missing'
-					}
-					else if "`up'" == "" & "`down'" != "" {
-						summarize `var' if `var' > `missing'
-						replace `var' = (`var' - r(min))/(r(max) - r(min)) if `var' > `missing'
-						replace `var' = . if `var' <= `missing'
+	*** start loop to name variables
+		forval i=1/`counted' {
+			local var : word `i' of `varlist'
+			local nscale_var "`var'"
+			if "`replace'"=="" {
+			* replace: off
+				if "`generate'"!="" {
+				* generate: on
+					local gen : word `i' of `generate'
+					local nscale_var "`gen'"
+				}
+				if "`prefix'"!="" {
+				* prefix: on
+					local nscale_var="`prefix'"+"`sep'"+"`nscale_var'"
+				}
+				if "`postfix'"!="" {
+				* postfix: on
+					local nscale_var="`nscale_var'"+"`sep'"+"`postfix'"
+				}
+				if "`extract'"!="" {
+				* extract: on
+					nscale_extract `var' , e(`extract')
+					if "`s(nscale_extract)'"!="error" {
+						local nscale_var="`nscale_var'"+"`s(nscale_extract)'"
 					}
 					else {
-						summarize `var' if `var' != `missing'
-						replace `var' = (`var' - r(min))/(r(max) - r(min)) if `var' != `missing'
-						replace `var' = . if `var' == `missing'
-					}
-					if "`reverse'" != "" {
-						replace `var' = 1 - `var'
+						local nscale_var=subinstr("`nscale_var'", "`gen'", "`var'", .)
 					}
 				}
-
-			}
-			else {
-			* m(#): off
-				if "`up'" != "" | "`down'" != "" {
-					noisily Error 198 "option up or down requires option missing to be set"
+				if "`numbering'"!="" {
+				* numbering: on
+					local num=`numbering'-1+`i'
+					local digit=strlen("`counted'")
+					local num : display %0`digit'.0f `num'
+					local nscale_var="`nscale_var'"+"`num'"
 				}
-				else {
-					foreach var in `generate' {
-						summarize `var'
-						replace `var' = (`var' - r(min))/(r(max) - r(min))
-						if "`reverse'" != "" {
-							replace `var' = 1 - `var'
-						}
-					}
+				if "`var'"=="`nscale_var'" {
+					local nscale_var "`nscale_var'_01"
 				}
-
 			}
-
-			if "`tab'" != "" {
-				noisily tab1 `generate'
-			}
-
+			local nscale_varlist="`nscale_varlist'"+" `nscale_var'"
 		}
-		else if "`generate'" == "" & "`prefix'" != "" {
 
-			local n_vars : word count `varlist'
-			forval i = 1/`n_vars' {
-				local ovar : word `i' of `varlist'
-				clonevar `prefix'`ovar' = `ovar'
-				label values `prefix'`ovar' .
-			}
+	*** options applied before scaling
+		if "`interactive'"!="" & "`quietly'"=="" {
+		* interactive: on, quietly: off
+			di as text "nscale interactive mode is running"
+			di as text "각 변수마다 빈도표를 확인하고 결측치로 설정할 값을 지정할 수 있습니다."
+			di as text "Available options in interactive mode are as follows: up down reverse tab"
+		}
 
-			if "`missing'" != "" {
-
-				foreach var in `varlist' {
-					if "`up'" != "" & "`down'" != "" {
-						noisily Error 198 "option up may not be combined with down"
-					}
-					else if "`up'" != "" & "`down'" == "" {
-						summarize `var' if `var' < `missing'
-						replace `prefix'`var' = (`var' - r(min))/(r(max) - r(min)) if `var' < `missing'
-						replace `prefix'`var' = . if `var' >= `missing'
-					}
-					else if "`up'" == "" & "`down'" != "" {
-						summarize `var' if `var' > `missing'
-						replace `prefix'`var' = (`var' - r(min))/(r(max) - r(min)) if `var' > `missing'
-						replace `prefix'`var' = . if `var' <= `missing'
-					}
-					else {
-						summarize `var' if `var' != `missing'
-						replace `prefix'`var' = (`var' - r(min))/(r(max) - r(min)) if `var' != `missing'
-						replace `prefix'`var' = . if `var' == `missing'
-					}
-					if "`reverse'" != "" {
-						replace `prefix'`var' = 1 - `prefix'`var'
-					}
-				}
-
+	*** start loop to scale variables to lie between 0 and 1
+		forval i=1/`counted' {
+			local var : word `i' of `varlist'
+			local nscale_var : word `i' of `nscale_varlist'
+			if "`interactive'"=="" {
+			* interactive: off
+				nscale_replace `var' `nscale_var' , `replace' m(`missing') `up' `down' `reverse' `tabulate'
 			}
 			else {
-			* m(#): off
-				if "`up'" != "" | "`down'" != "" {
-					noisily Error 198 "option up or down requires option missing to be set"
+			* interactive: on
+				local nscale_label : value label `var'
+				numlabel `nscale_label' , add
+				noisily tab `var'
+				nscale_interactive `var' `nscale_var' , `replace' `reverse' `tabulate'
+				if ( "`tabulate'"!="" | "`s(nscale_interactive_tabulate)'"!="" ) {
+					di as text "계속하려면 엔터 키를 누르세요: " , _request(_interacted_tabulate)
 				}
-				else {
-					foreach var in `varlist' {
-						summarize `var'
-						replace `prefix'`var' = (`var' - r(min))/(r(max) - r(min))
-						if "`reverse'" != "" {
-							replace `prefix'`var' = 1 - `prefix'`var'
-						}
-					}
-				}
-
 			}
+		}
 
-			if "`tab'" != "" {
-				local n_vars : word count `varlist'
-				local s_var : word 1 of `varlist'
-				local e_var : word `n_vars' of `varlist'
-				noisily tab1 `prefix'`s_var'-`prefix'`e_var'
+// }
+
+end
+
+program nscale_interactive
+	version 10
+	syntax namelist(max=2) [, REPLACE Reverse Tabulate]
+
+// qui {
+
+	*** get variable names
+		gettoken var nscale_var : namelist
+
+	*** specify missing values interactively
+		di as text "결측치로 지정할 값을 입력하세요: " , _request(_interacted)
+		if "`interacted'"=="exit" {
+			exit 1
+		}
+		capture noisily: nscale_interactive_options `interacted'
+		if _rc==0 {
+			gettoken interacted interacted_options : interacted , p(",")
+			if "`interacted'"=="," {
+				local interacted ""
 			}
-
+			local interacted_options=subinstr("`interacted_options'", ",", "", .)
+			if "`reverse'"!="" & "`s(nscale_interactive_reverse)'"=="" {
+				local interacted_options="`interacted_options'"+" `reverse'"
+			}
+			if "`tabulate'"!="" & "`s(nscale_interactive_tabulate)'"==""  {
+				local interacted_options="`interacted_options'"+" `tabulate'"	
+			}
+			nscale_replace `var' `nscale_var' , `replace' m(`interacted') `interacted_options'
 		}
 		else {
-		* no, gen(namelist) and pre(name): off
-			if "`missing'" != "" {
-
-				foreach var in `varlist' {
-					clonevar `var'_01 = `var'
-					if "`up'" != "" & "`down'" != "" {
-						noisily Error 198 "option up may not be combined with down"
-						drop `var'_01
-					}
-					else if "`up'" != "" & "`down'" == "" {
-						summarize `var' if `var' < `missing'
-						replace `var'_01 = (`var' - r(min))/(r(max) - r(min)) if `var' < `missing'
-						replace `var'_01 = . if `var' >= `missing'
-					}
-					else if "`up'" == "" & "`down'" != "" {
-						summarize `var' if `var' > `missing'
-						replace `var'_01 = (`var' - r(min))/(r(max) - r(min)) if `var' > `missing'
-						replace `var'_01 = . if `var' <= `missing'
-					}
-					else {
-						summarize `var' if `var' != `missing'
-						replace `var'_01 = (`var' - r(min))/(r(max) - r(min)) if `var' != `missing'		
-						replace `var'_01 = . if `var' == `missing'
-					}
-					if "`reverse'" != "" {
-						replace `var'_01 = 1 - `var'_01
-					}
-				}
-
-			}
-			else {
-			* m(#): off
-				if "`up'" != "" | "`down'" != "" {
-					noisily Error 198 "option up or down requires option missing to be set"
-				}
-				else {
-					foreach var in `varlist' {
-						summarize `var'
-						clonevar `var'_01 = `var'
-						replace `var'_01 = (`var' - r(min))/(r(max) - r(min))
-						if "`reverse'" != "" {
-							replace `var'_01 = 1 - `var'_01
-						}
-					}
-				}
-
-			}
-
-			foreach var in `varlist' {
-					label values `var'_01 .
-			}
-
-			if "`tab'" != "" {
-				local n_vars : word count `varlist'
-				local s_var : word 1 of `varlist'
-				local e_var : word `n_vars' of `varlist'
-				noisily tab1 `s_var'_01-`e_var'_01
-			}
-
+			nscale_interactive `var' `nscale_var' , `replace' `reverse' `tabulate'
 		}
 
-	}
+// }
+
+end
+
+program nscale_interactive_options , sclass
+	version 10
+	syntax [anything(name=missing)] [, Up Down Reverse Tabulate]
+
+// qui {
+
+	sreturn local nscale_interactive_reverse ""
+	sreturn local nscale_interactive_tabulate ""
+
+	*** check if specified value is numeric
+		if "`missing'"!="" {
+			capture confirm number `missing'
+			if _rc!=0 {
+				di as error "You should specify a number"
+				exit 198
+			}
+		}
+
+	*** check if options are correctly specified
+		if "`up'"!="" & "`down'"!="" {
+			di as error "option up may not be combined with down"
+			exit 198
+		}
+		else if ( "`up'"!="" | "`down'"!="" ) & "`missing'"=="" {
+			di as error "option up or down requires to specify value"
+			exit 198
+		}
+
+	*** check if reverse or tabulate has been specified locally
+		if "`reverse'"!="" {
+			sreturn local nscale_interactive_reverse "`reverse'"
+		}
+		if "`tabulate'"!="" {
+			sreturn local nscale_interactive_tabulate "`tabulate'"
+		}
+
+// }
+
+end
+
+program nscale_replace
+	version 10
+	syntax namelist(max=2) [, REPLACE Missing(numlist min=0 max=1) Up Down Reverse Tabulate]
+
+qui {
+
+	*** get variable names
+		if "`replace'"=="" {
+		* replace: off
+			gettoken given_var var : namelist
+			clonevar `var' = `given_var'
+		}
+		else {
+		* replace: on
+			local var "`1'"
+		}
+		label values `var' .
+
+	*** scale variable to lie between 0 and 1
+		if "`missing'"!="" {
+		* missing: on
+			if "`up'"!="" & "`down'"=="" {
+			* up: on, down: off
+				summarize `var' if `var'<`missing'
+				replace `var'=(`var'-r(min))/(r(max)-r(min)) if `var'<`missing'
+				replace `var'=. if `var'>=`missing'
+			}
+			else if "`up'"=="" & "`down'"!="" {
+			* up: off, down: on
+				summarize `var' if `var'>`missing'
+				replace `var'=(`var'-r(min))/(r(max)-r(min)) if `var'>`missing'
+				replace `var'=. if `var'<=`missing'
+			}
+			else {
+			* up and down: off
+				summarize `var' if `var'!=`missing'
+				replace `var'=(`var'-r(min))/(r(max)-r(min)) if `var'!=`missing'		
+				replace `var'=. if `var'==`missing'
+			}
+		}
+		else {
+		* missing: off
+			summarize `var'
+			replace `var'=(`var'-r(min))/(r(max)-r(min))
+		}
+
+	*** options
+		if "`reverse'"!="" {
+			replace `var'=1-`var'
+		}
+		if "`tabulate'"!="" {
+			noisily tab `var'
+		}
 
 }
 
 end
 
-program define Error
+program nscale_extract , sclass
 	version 10
-	args nr txt
+	syntax varlist(max=1) , Extract(integer)
 
-	dis as err `"{p}`txt'{p_end}"'
-	exit `nr'
+qui {
+
+	sreturn local nscale_extract ""
+	if round(c(stata_version))>13 {
+	* running Stata newer than 13
+		local extracted=usubstr("`varlist'", ustrlen("`varlist'")+1-`extract', `extract')
+	}
+	else {
+	* running Stata older than 14
+		local extracted=substr("`varlist'", strlen("`varlist'")+1-`extract', `extract')
+	}
+	capture confirm number `extracted'
+	if _rc==0 {
+		sreturn local nscale_extract "`extracted'"
+	}
+	else {
+		if `extract'>1 {
+			local extract=`extract'-1
+			nscale_extract `varlist' , e(`extract')
+		}
+		else {
+			sreturn local nscale_extract "error"
+			exit
+		}
+	}
+
+}
+
 end
