@@ -1,43 +1,50 @@
-*** version 3.0 9January2020
+*** version 3.0 11January2020
 *** contact information: plus1@sogang.ac.kr
 
 program nscale
 	version 10
-	syntax varlist(numeric) [, REPLACE Generate(namelist) PREfix(name) POSTfix(name) Extract(numlist max=1) NUMbering(numlist max=1) SEParator Interactive Quietly Missing(numlist max=1) Up Down Reverse Tabulate]
+	syntax varlist [, REPLACE Generate(namelist) PREfix(name) POSTfix(name) SEParator Extract(numlist max=1) noLZero NUMbering(numlist max=1) FORCE DIstinct(integer 30) Interactive Quietly Missing(numlist max=1) Up Down Reverse Tabulate]
 
-// qui {
+qui {
 
 	*** check if options are correctly specified
 		if ( "`generate'"!="" | "`prefix'"!="" | "`postfix'"!="" ) & "`replace'"!="" {
-			di as error "option generate(), prefix() or postfix() may not be combined with replace"
+			noisily di as error "option {bf:generate()}, {bf:prefix()} or {bf:postfix()} may not be combined with {bf:replace}"
 			exit 198			
 		}
 		if ( "`extract'"!="" | "`numbering'"!="" ) & "`generate'"=="" {
-			di as error "option extract() or numbering() requires generate() to be set"
+			noisily di as error "option {bf:extract()} or {bf:numbering()} requires {bf:generate()} to be set"
+			exit 198
+		}
+		if "`force'"!="" & "`distinct'"!="" {
+			noisily di as error "option {bf:force} may not be combined with {bf:distinct}"
 			exit 198
 		}
 		if "`missing'"!="" & "`interactive'"!="" {
-			di as error "option interactive may not be combined with missing()"
+			noisily di as error "option {bf:missing()} may not be combined with {bf:interactive mode}"
 			exit 198
 		}
 		if "`up'"!="" & "`down'"!="" {
-			di as error "option up may not be combined with down"
+			noisily di as error "option {bf:up} may not be combined with {bf:down}"
 			exit 198
 		}
 		if ( "`up'"!="" | "`down'"!="" ) & "`missing'"=="" {
-			di as error "option up or down requires missing() to be set"
+			noisily di as error "option {bf:up} or {bf:down} requires {bf:missing()} to be set"
 			exit 198
 		}
 
 	*** print warnings {
 		if "`extract'"!="" & "`numbering'"!="" {
-			di as result "option extract() combined with numbering() might not give the desired result"
+			noisily di as error "option {bf:extract()} combined with {bf:numbering()} might not give the desired result"
 		}
 		if "`prefix'"=="" & "`postfix'"=="" & "`separator'"!="" {
-			di as result "option separator only applies if prefix() or postfix() is set"
+			noisily di as error "option {bf:separator} only applies if {bf:prefix()} or {bf:postfix()} is set"
+		}
+		if "`numbering'"=="" & "`lzero'"=="nolzero" {
+			noisily di as error "option {bf:nolzero} only applies if {bf:numbering()} is set"
 		}
 		if "`interactive'"=="" & "`quietly'"!="" {
-			di as result "option quietly only applies if nscale is running in interactive mode"
+			noisily di as error "option {bf:quietly} only applies if {bf:nscale} is running in {bf:interactive mode}"
 		}
 
 	*** get number of variables
@@ -49,16 +56,16 @@ program nscale
 		}
 		if "`generate'"!="" {
 			if `counted'<`: word count `generate'' {
-				di as error "option generate():	too many names specified"
+				noisily di as error "option {bf:generate()}:	too many names specified"
 				exit 103
 			}
 			else if `counted'>`: word count `generate'' {
-				di as error "option generate():	too few names specified"
+				noisily di as error "option {bf:generate()}:	too few names specified"
 				exit 103
 			}
 		}
 
-	*** options applied before naming
+	*** options applied before naming variables
 		if "`separator'"!="" {
 			local sep "_"
 		}
@@ -92,135 +99,200 @@ program nscale
 						local nscale_var="`nscale_var'"+"`s(nscale_extract)'"
 					}
 					else {
-						local nscale_var=subinstr("`nscale_var'", "`gen'", "`var'", .)
+						if round(c(stata_version))>13 {
+						* running Stata newer than 13
+							local nscale_var=usubinstr("`nscale_var'", "`gen'", "`var'", .)
+						}
+						else {
+						* running Stata older than 14
+							local nscale_var=subinstr("`nscale_var'", "`gen'", "`var'", .)
+						}
 					}
 				}
 				if "`numbering'"!="" {
 				* numbering: on
 					local num=`numbering'-1+`i'
 					local digit=strlen("`counted'")
-					local num : display %0`digit'.0f `num'
+					if "`lzero'"!="nolzero" {
+					* lzero: on
+						local num : display %0`digit'.0f `num'
+					}
 					local nscale_var="`nscale_var'"+"`num'"
 				}
 				if "`var'"=="`nscale_var'" {
+				* no naming options are specified
 					local nscale_var "`nscale_var'_01"
 				}
 			}
 			local nscale_varlist="`nscale_varlist'"+" `nscale_var'"
 		}
 
-	*** options applied before scaling
-		if "`interactive'"!="" & "`quietly'"=="" {
-		* interactive: on, quietly: off
-			di as text "nscale interactive mode is running"
-			di as text "각 변수마다 빈도표를 확인하고 결측치로 설정할 값을 지정할 수 있습니다."
-			di as text "Available options in interactive mode are as follows: up down reverse tab"
+	*** options applied before scaling variables
+		if "`interactive'"!="" {
+		* interactive: on
+			local hlinesize=round((c(linesize)-strlen(" nscale (interactive mode) "))/2)
+			if "`quietly'"=="" {
+			* quietly: off
+				noisily di as text "{hline `hlinesize'} {cmd:nscale} (interactive mode) {hline}"
+				if c(linesize)<92 {
+					noisily di as text "Specify a value being set to missing (.) for each variable," _newline " with a comma followed by options"
+				}
+				else {
+					noisily di as text "Specify a value being set to missing (.) for each variable, with a comma followed by options"	
+				}
+				if c(linesize)<67 {
+					noisily di as text "Available options in interactive mode are:" _newline " {cmd:up} {cmd:down} {cmd:reverse} {cmd:tabulate}"
+				}
+				else {
+					noisily di as text "Available options in interactive mode are: {cmd:up} {cmd:down} {cmd:reverse} {cmd:tabulate}"	
+				}
+				noisily di as text "{hline}"
+			}
 		}
 
-	*** start loop to scale variables to lie between 0 and 1
+	*** start loop to scale variables
 		forval i=1/`counted' {
 			local var : word `i' of `varlist'
+		*** check if given variable is able to be scaled
+			if strmatch("`: type `var''", "str*")==1 {
+				noisily di as error "{bf:nscale} skips scaling {bf:`var'}: string variable"
+				continue
+			}
+			summarize `var'
+			if r(N)==0 {
+				noisily di as error "{bf:nscale} skips scaling {bf:`var'}: no observations"
+				continue
+			}
+			else if r(min)==r(max) {
+				noisily di as error "{bf:nscale} skips scaling {bf:`var'}: constant variable"
+				continue
+			}
+		*** options applied before subprograms
+			if "`force'"=="" & ( strpos("`0'", "*")==1 | `counted'>30 ) {
+			* force: off
+				levelsof `var'
+				if r(r)>`distinct' {
+					noisily di as error "{bf:nscale} skips scaling {bf:`var'}: number of distinct values exceeded `distinct'"
+					continue
+				}
+			}
+		*** call subprograms
 			local nscale_var : word `i' of `nscale_varlist'
 			if "`interactive'"=="" {
 			* interactive: off
-				nscale_replace `var' `nscale_var' , `replace' m(`missing') `up' `down' `reverse' `tabulate'
+				nscale_scale `var' `nscale_var' , `replace' m(`missing') `up' `down'
 			}
 			else {
 			* interactive: on
-				local nscale_label : value label `var'
-				numlabel `nscale_label' , add
+				numlabel `: value label `var'' , add force
 				noisily tab `var'
-				nscale_interactive `var' `nscale_var' , `replace' `reverse' `tabulate'
-				if ( "`tabulate'"!="" | "`s(nscale_interactive_tabulate)'"!="" ) {
-					di as text "계속하려면 엔터 키를 누르세요: " , _request(_interacted_tabulate)
+				noisily di _newline as text "{hline `hlinesize'} {cmd:nscale} (interactive mode) {hline}"
+				capture noisily nscale_interactive `var' `nscale_var' , `replace'
+				while _rc!=0 & _rc!=1 {
+					capture noisily nscale_interactive `var' `nscale_var' , `replace'
+				}
+				if _rc==1 {
+					noisily di as text "{cmd:nscale} has been terminated by {search r(1),local:user request}"
+					noisily di as text "{hline}"
+					continue , break
+				}
+				noisily di as text "{hline}"
+			}
+		*** options applied after subprograms
+			if "`reverse'"!="" | "`s(nscale_options_reverse)'"!=""  {
+				replace `nscale_var'=1-`nscale_var'
+			}
+			if "`tabulate'"!="" | "`s(nscale_options_tabulate)'"!="" {
+				noisily tab `nscale_var'
+				if "`interactive'"!="" {
+					noisily di as text _newline "Press {mansection R moreRemarksandexamples:any key} to continue, or {help keyboard:Break} to abort {cmd:nscale} {hline}"
+					set more on
+					more
+					set more off			
 				}
 			}
 		}
 
-// }
+}
 
 end
 
 program nscale_interactive
 	version 10
-	syntax namelist(max=2) [, REPLACE Reverse Tabulate]
+	syntax namelist(max=2) [, REPLACE]
 
-// qui {
+qui {
 
 	*** get variable names
 		gettoken var nscale_var : namelist
 
 	*** specify missing values interactively
-		di as text "결측치로 지정할 값을 입력하세요: " , _request(_interacted)
+		noisily di as text "Enter a value being set to missing (.): " _request(_interacted)
 		if "`interacted'"=="exit" {
 			exit 1
 		}
-		capture noisily: nscale_interactive_options `interacted'
-		if _rc==0 {
-			gettoken interacted interacted_options : interacted , p(",")
-			if "`interacted'"=="," {
-				local interacted ""
-			}
-			local interacted_options=subinstr("`interacted_options'", ",", "", .)
-			if "`reverse'"!="" & "`s(nscale_interactive_reverse)'"=="" {
-				local interacted_options="`interacted_options'"+" `reverse'"
-			}
-			if "`tabulate'"!="" & "`s(nscale_interactive_tabulate)'"==""  {
-				local interacted_options="`interacted_options'"+" `tabulate'"	
-			}
-			nscale_replace `var' `nscale_var' , `replace' m(`interacted') `interacted_options'
+		capture noisily nscale_options `interacted'
+		if _rc!=0 {
+			exit _rc
 		}
-		else {
-			nscale_interactive `var' `nscale_var' , `replace' `reverse' `tabulate'
-		}
-
-// }
+		nscale_scale `var' `nscale_var' , `replace' m(`s(nscale_options_missing)') `s(nscale_options_up)' `s(nscale_options_down)'
+}
 
 end
 
-program nscale_interactive_options , sclass
+program nscale_options , sclass
 	version 10
 	syntax [anything(name=missing)] [, Up Down Reverse Tabulate]
 
-// qui {
+qui {
 
-	sreturn local nscale_interactive_reverse ""
-	sreturn local nscale_interactive_tabulate ""
+	sreturn local nscale_options_missing ""
+	sreturn local nscale_options_up ""
+	sreturn local nscale_options_down ""
+	sreturn local nscale_options_reverse ""
+	sreturn local nscale_options_tabulate ""
 
 	*** check if specified value is numeric
 		if "`missing'"!="" {
 			capture confirm number `missing'
 			if _rc!=0 {
-				di as error "You should specify a number"
+				noisily di as error "You should specify a number"
 				exit 198
 			}
+			sreturn local nscale_options_missing "`missing'"
 		}
 
 	*** check if options are correctly specified
 		if "`up'"!="" & "`down'"!="" {
-			di as error "option up may not be combined with down"
+			noisily di as error "option {bf:up} may not be combined with {bf:down}"
 			exit 198
 		}
 		else if ( "`up'"!="" | "`down'"!="" ) & "`missing'"=="" {
-			di as error "option up or down requires to specify value"
+			noisily di as error "You should specify a value to set option {bf:up} or {bf:down}"
 			exit 198
 		}
 
-	*** check if reverse or tabulate has been specified locally
+	*** store options
+		if "`up'"!="" {
+			sreturn local nscale_options_up "`up'"
+		}
+		if "`down'"!="" {
+			sreturn local nscale_options_up "`down'"
+		}
 		if "`reverse'"!="" {
-			sreturn local nscale_interactive_reverse "`reverse'"
+			sreturn local nscale_options_reverse "`reverse'"
 		}
 		if "`tabulate'"!="" {
-			sreturn local nscale_interactive_tabulate "`tabulate'"
+			sreturn local nscale_options_tabulate "`tabulate'"
 		}
 
-// }
+}
 
 end
 
-program nscale_replace
+program nscale_scale
 	version 10
-	syntax namelist(max=2) [, REPLACE Missing(numlist min=0 max=1) Up Down Reverse Tabulate]
+	syntax namelist(max=2) [, REPLACE Missing(numlist min=0 max=1) Up Down]
 
 qui {
 
@@ -264,14 +336,6 @@ qui {
 			replace `var'=(`var'-r(min))/(r(max)-r(min))
 		}
 
-	*** options
-		if "`reverse'"!="" {
-			replace `var'=1-`var'
-		}
-		if "`tabulate'"!="" {
-			noisily tab `var'
-		}
-
 }
 
 end
@@ -302,7 +366,6 @@ qui {
 		}
 		else {
 			sreturn local nscale_extract "error"
-			exit
 		}
 	}
 
