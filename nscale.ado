@@ -154,7 +154,8 @@ qui {
 		forval i=1/`counted' {
 			local var : word `i' of `varlist'
 		*** check if given variable is able to be scaled
-			if strmatch("`: type `var''", "str*")==1 {
+			capture confirm string variable `var' , exact
+			if _rc==0 {
 				noisily di as error "{bf:nscale} skips scaling {bf:`var'}: string variable"
 				continue
 			}
@@ -178,6 +179,18 @@ qui {
 			}
 		*** call subprograms
 			local nscale_var : word `i' of `nscale_varlist'
+			if "`replace'"=="" {
+			* replace: off
+				capture confirm new variable `nscale_var' , exact
+				if _rc==110 {
+					noisily di as error "{bf:nscale} skips scaling {bf:`var'}: variable already defined"
+					continue
+				}
+				if _rc!=0 {
+					noisily di as error "{bf:nscale} skips scaling {bf:`var'}: invalid name"
+					continue
+				}
+			}
 			if "`interactive'"=="" {
 			* interactive: off
 				nscale_scale `var' `nscale_var' , `replace' m(`missing') `up' `down'
